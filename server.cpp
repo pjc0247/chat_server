@@ -11,7 +11,7 @@
 
 #include <unistd.h>
 
-#include <set>
+#include <map>
 
 using namespace std;
 
@@ -21,7 +21,7 @@ int sock;
 int kq;
 struct kevent event;
 
-set<int> clients;
+map<int, int> clients;
 
 bool setup_socket(){
     sockaddr_in addr;
@@ -76,6 +76,27 @@ int on_accept(){
     return client;
 }
 
+void send_cls(int sock){
+    char msg[128];
+    sprintf(msg, "%c[2J",0x1B);
+    write(sock, msg, strlen(msg));
+}
+void send_gotoxy(int sock, 	int x,int y){
+    char msg[128];
+    sprintf(msg, "%c[%d;%df",0x1B,y,x);
+    write(sock, msg, strlen(msg));
+}
+void send_lineclear(int sock){
+    char msg[128];
+    sprintf(msg, "%c[0K",0x1B);
+    write(sock, msg, strlen(msg));
+}
+void reset_input(int sock){
+    send_gotoxy(sock, 0,22);
+    write( sock, "msg : ", strlen("msg : "));
+    send_lineclear(sock);
+}
+
 void event_loop(){
     
     while( true ){
@@ -103,7 +124,10 @@ void event_loop(){
                            0,0,0 );
                     kevent( kq, &event, 1, 0,0,0 );
                     
-                    clients.insert( client );
+                    clients[client] = 1;
+                    
+                    send_cls( client );
+                    reset_input( client );
                 }
             }
             else{
@@ -126,8 +150,19 @@ void event_loop(){
                 }
                 /* 데이터 수신함 */
                 else if( ev.flags & EVFILT_READ ){
-                    for(auto client : clients)
+                    for(auto &pair : clients){
+                        int client = pair.first;
+                        int &y = pair.second;
+                        
+                        if(y >= 21){
+                            send_cls(client);
+                            y = 1;
+                        }
+                        
+                        send_gotoxy(client, 3,y++);
                         write( client, buf, len );
+                        reset_input( client );
+                    }
                 }
             }
             
